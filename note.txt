@@ -1,0 +1,2008 @@
+/*临时
+1.识别本机IP地址 	:TCP/IP-MFC
+
+2.记录登录的IP地址及端口号同时绑定SN号，完成群发设置命令 :TCP/IP-MFC-链表
+
+
+3.网络更新断点下载		:结构体
+
+4.整改IAP显示框，左边串口控制，右边网络控制		:MFC
+
+5.用系统管理的方式处理大盒子WiFi处理	:操作系统
+
+6.移植UCOSIII,了解工作流程。
+*/
+
+/*仪器管理
+1.开机工作流程
+仪器管理终端上电后，首先对各个引脚，片外SRAM与Rlfalsh文件系统等需要的资源进行初始化。
+当初始化完UCOSIII后，开启独立开门狗的同时建立开始任务。
+开始任务分别建立一个主任务与一个UCGUI显示界面的任务。
+主任务主要处理射频卡读取、蜂鸣器警报、WIFI状态机、服务器下发用户预约信息等事件。
+UCGUI任务则负责信息实时显示。
+*/
+
+/*1.SmartWindow
+
+后天橱窗哔哔响可能问题
+
+称重原理：
+实重=当前重量-毛重
+毛重： 1:刷入超级卡第一次，开门，并向主机提示超级卡刷卡开门、2:将警告标志置1,通知:将借出归还标志置0，将 错拿 放错置0，蜂鸣器响声置零。
+	   2.提示清空仪器，进入显示倒计时
+		
+	   3.刷入超级卡第二次：进入毛重模式，提示请更换仪器，进入显示倒计时。
+	   4.获取模块信息，获取当前重量作为毛重，存入flash，并把获取毛重表示置0。
+	   
+当前重量：5.刷入第三次：设置重量设为2，如果此时，用户卡存在，则向主机提示，超级卡处理仪器。
+		  6.显示更换成功，关门，并向主机提示，超级卡关门。
+		  7. 进入获取当前重量，并获取实重，保存置flash，将重量状态置为0;
+		  8.实时获取当前实重与当前实重与实际实重的绝对值误差，如果当前实重>与实际实重的一般与当前误差<实际实重的0.2表示仪器已经归位。
+		  9.如果当前实重>实际实重的一般，同时当前误差>实重的0.2，则仪器与当前存放仪器不符。
+		  10.如果当前实重<实际实重，而又没有用户卡操作，则仪器被错拿。
+		  11.如果有用户卡，则仪器被借出。
+		  
+		  
+(1):长时间放置仪器或一些别的原因导致称重块出现不可逆的形变，此时原先保存的实重不变，而当前的时钟已改变
+由此引发的结果
+1.当前重量变大或变小，使得计算出来的实重变差过大，导致误差>实际实重的0.2,引发警报。
+解决方法：使用管理员卡重新称重。
+
+2.由于木质材料的膨胀变形等原因，与称重盘接触导致称重不准。
+解决办法:拆盒改造。 
+
+3.未知原因
+更新程序
+
+程序出现状态：画出流程图
+1.借出成功：立即关门
+
+
+
+
+
+*/
+
+/*2.自组网命令
+	iperf3.exe -c 192.168.166 -b 100M  -t 100 -i 1 
+*/
+
+/*3.编解码知识点
+16进制：
+
+
+base64：
+base64编解码：
+-1- Bse64是一种以64个可打印字符对二进制数据进行编码的编码算法。
+-2- base64在对数据进行编码时以三个8位字符型数据为一组，取这三个字符型数据的ASCII码，
+-3- 然后以6位为一组组成4个新的数据，这4个新的数据有6位，所以它的最大值为2^6=64。
+-4- 我们以4个6位数据的十进制数从base64表中得到最终编码后的字符。
+
+  由于base64编码是将编码前的3*8位数据，分解成4个6位的数据，所以经过base64编码后的字符串长度是4的倍数。【ok】
+  但往往我们进行编码的数据长度并不是3的倍数，这就造成了“编码”后的位数不为4的倍数， 【ok】
+  比如Brisk共5×8=40位，以6位为一组可以分为7组，这样“编码”后就有7个字符，	【ok】
+  但base64编码后的字符长度应该是4的倍数，显然这里就出问题了，那么怎么办呢？		【ok】						
+  前面的不可以抛弃掉，所以就只有“追加”了，所以Brisk经过base64编码后的长度应该是8个字符，而第8个编码后的字符是'='，【为什么要加'='】
+  再比如对单个字符a进行base64编码，由于它的长度不是3的倍数，以3个字节为一组它只能分一组，再以6位为一位它只能分两组，所以经过“编码”后它的长度是2，【ok】
+  但base64编码后的个数应该是4的倍数，所以它的长度应该是4，所以在后面补上两个‘=’,【为什么要加'='】
+  由于一个数求余3后有三个不同的结果，0、1、2，所以在对一个数据进行base64进行编码后它的长度为：【ok】
+  
+（1）当进行编码的数据长度是3的倍数时，len=strlen(str_in)/3*4;		【ok】
+（2）当进行编码的数据长度不是3的倍数时，len=(strlen(str_in)/3+1)*4;	【ok】
+
+我们以Brisk这个例子来说明一下base64编码的过程。【ok】
+首先我们以3个字符为一组将Brisk进行分组，Brisk被氛围两组：Bri 和 sk；【ok】
+然后我们取出这两个分组中每个字节的ASCII码，B:66 r:114 i:105 s:115 k:107。【ok】
+它们对应的二进制数为  B:01000010 r:01110010 i:01101001 s:01110011 k:01101011；【ok】
+第一组，我们以6位为一组对每一个3字节分组进行再分组就变成了010000 100111 001001 101001。【ok】
+所对应的十进制数是16 39 9 41，对应base64表中的结果是 Q n J p；
+第二组，011100 110110 101100(不够补0)，所以对应的十进制数是 28 54 44，对应base64表中的结果是 c 2 s，【ok】
+最终结果为QnJpc2s=（因为第二组“编码”后只有三个字节）。【ok】
+
+unsigned char *base64_encode(unsigned char *str)  
+{  
+    long len;  
+    long str_len;  
+    unsigned charchar *res;  
+    int i,j;  
+//定义base64编码表  
+    unsigned char *base64_table="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";  
+  
+//计算经过base64编码后的字符串长度  
+    str_len=strlen(str);  
+    if(str_len % 3 == 0)  
+        len=str_len/3*4;  
+    else  
+        len=(str_len/3+1)*4;  //有余数则加1； 获取base64长度
+  
+    res=malloc(sizeof(unsigned char)*len+1);  
+    res[len]='\0';  
+  
+//以3个8位字符为一组进行编码  
+    for(i=0,j=0;i<len-2;j+=3,i+=4) 		//【为什么len-2】 
+    {  
+        res[i]=base64_table[str[j]>>2]; //取出第一个字符的前6位并找出对应的结果字符  
+        res[i+1]=base64_table[(str[j]&0x3)<<4 | (str[j+1]>>4)]; //将第一个字符的后位与第二个字符的前4位进行组合并找到对应的结果字符  
+        res[i+2]=base64_table[(str[j+1]&0xf)<<2 | (str[j+2]>>6)]; //将第二个字符的后4位与第三个字符的前2位组合并找出对应的结果字符  
+        res[i+3]=base64_table[str[j+2]&0x3f]; //取出第三个字符的后6位并找出结果字符  
+    }  
+  
+    switch(str_len % 3)  
+    {  
+        case 1:  
+            res[i-2]='=';  
+            res[i-1]='=';  
+            break;  
+        case 2:  
+            res[i-1]='=';  
+            break;  
+    }  
+  
+    return res;  
+}
+
+*/
+
+/*4.MFC知识点
+1.如何获取窗口句柄？
+0-获取所在类窗口的句柄：this->m_hwnd		
+1-获取主窗口句柄的方法：AfxGetMainWnd()->m_hWnd，如：::SendMessage(AfxGetMainWnd()->m_hWnd , WM_MY_DOSOME , 0 ,(LPARAM)i);
+2-子窗口句柄：用FindWindow，（只要知道子窗口的名字即可）如：  ::FindWindow(NULL,WindowsName)  CWnd* pWnd=FindWindow(NULL,_T("清芝--支票机"));//
+	HWND   FindWindow( 
+    LPCTSTR   lpClassName,   //   pointer   to   class   name 
+    LPCTSTR   lpWindowName   //   pointer   to   window   name 
+); 
+3-获取某个窗口对象（CWnd的派生对象）指针的句柄（HWND）时，最安全的方法是使用GetSafeHwnd()函数。  　CWnd *pwnd = FindWindow(“ExploreWClass”,NULL);   HWND hwnd = pwnd->m_hWnd;  【】
+4-获取窗口中 控件的句柄，用 GetDlgItem，语法为：GetDlgItem(IDC_COMBO3)->m_hWnd ：参数为 该控件的ID,返回值为:CWnd* 类型，但它是CWnd类内的函数，因此要先获取控件所在窗口的指针
+如：CString str(_T("dd")); ::SendMessage(AfxGetMainWnd()->GetDlgItem(IDC_COMBO3)->m_hWnd, WM_SETTEXT , 0 , (LPARAM)str.GetBuffer(0));
+
+
+
+
+2.如何判断获取句柄的准确性？
+
+
+
+3.::后跟函数是什么语法，::能做什么？
+1-第一种用发，也就是上面提到的问题，作为全局作用域符号使用，当全局变量与某个局部变量重名是可以用::变量名区分，
+2-类作用域，前面是类名称，后面是类成员，如A::member,B::member,其目的也是可以区分不同的类有相同的成员
+3-命名空间，namespace::anme
+
+引出问题：
+(1)什么是命名空间： 待解答
+
+
+4.Cwnd是什么类型,与HWND有什么联系？
+1-句柄是一个３２位的数，是在WINDOS中的一个资源标示符，相当于c里面的指针，HWND   句柄， 其实就是void*类型的，当然没有函数可调用，只有用API对它进行操作
+例如 HWND hWnd1    1 (表示进程1中的某个窗口对象的地址)
+      HWND hWnd2    2 (表示进程2中的某个窗口对象的地址)
+	  进程即为你的操作系统中运行的应用程序或者服务 。
+2-CWnd就是窗口类，Cwnd 是C++的一个类，有函数调用。但其操作的对像其实就是一个HWND的句柄。
+3-它们之间的关系
+HWND   	hWnd = pWnd->GetSafeHwnd();        //CWnd->HWND
+CWnd *  pWnd = CWnd::FromHandle(hWnd); 	   //HWND->CWnd
+
+
+
+
+5.LPARAM是什么数据类型？
+
+6.  '.'与'->'的区别 
+ . :给的是立即数地址, -> :给的是指针 "."的左操作数为值，"->"的左操作数为指针。就是 a->b 写起来比 (*a).b 简单一些。
+ 
+7.this-> 代表什么操作？
+this是一个指向对象自身的指针，this指针指向类的当前对象
+
+8.MessageBox怎么使用？
+在类函数调用中
+ MessageBox(_T("成功"), _T("绑定窗口句柄"), MB_OK);
+
+
+9.WSAAsyncSelect()函数使用：
+int WSAAsyncSelect(
+    SOCKET s,  //标识一个需要事件通知的套接口描述符
+    HWND hWnd,  //标识一个在网络事件发生时要想收到消息的窗口或对话框的句柄
+    u_int wMsg,  //在网络事件发生时要接收的消息，该消息会投递到由hWnd句柄指定的窗口或对话框
+    long lEvent  //位屏蔽码，用于指明应用程序感兴趣的网络事件集合
+);
+进行一次WSAAsyncSelect( )调用，将使为同一个套接口启动的所有以前的WSAAsyncSelect( )调用作废。
+
+引出问题：异步连接成功后，返回的具体信息是什么？
+
+
+10.MFC中的字节对比怎么去记忆？
+1- 宽字符类型： typdef unsigned short wchar_t     定义方法：wchar_t *psz = L"Unicode";
+
+2- wchar char 与TCHAR的 联系：
+#ifdef _UINICODE
+#define  TCHAR wchar_t
+#else
+#define  TCHAR char
+#endif
+
+3- wcslen strlen 与_tcslen的联系
+#ifdef _UINICODE
+#define  _tcslen wcslen
+#else
+#define  _tcslen strlen
+#endif
+
+4- _T(x)与L的关系
+#ifdef _UINICODE
+#define  _T(x) L##x
+#endif
+
+5- tstr 与wstring string的关系 
+#ifdef _UINICODE
+#define  tstr 与wstring
+#else
+#define  tstr string
+#endif
+
+6-DWORD WORD与BYTE的关系
+ DWORD  4个字节
+ WORD   2个字节
+ BYTE   1个字节
+
+7- 款字符集转单字符集函数
+
+多字节转宽字节
+1- MultiByteToWideChar(
+    _In_ UINT CodePage,		
+    _In_ DWORD dwFlags,
+    _In_NLS_string_(cbMultiByte) LPCCH lpMultiByteStr,
+    _In_ int cbMultiByte,
+    _Out_writes_to_opt_(cchWideChar, return) LPWSTR lpWideCharStr,
+    _In_ int cchWideChar
+    );
+
+	宽字节转多字节
+2- WideCharToMultiByte(
+    _In_ UINT CodePage,		//指定的代码页 一般为 CP_ACP ANSI代码页
+    _In_ DWORD dwFlags,		//重音 一般设为0
+    _In_NLS_string_(cchWideChar) LPCWCH lpWideCharStr,		//指定要转换的宽字节缓冲区  
+    _In_ int cchWideChar,	//缓冲区的容量
+    _Out_writes_bytes_to_opt_(cbMultiByte, return) LPSTR lpMultiByteStr,	//指定要接收的多字节缓冲区  
+    _In_ int cbMultiByte,	//缓冲区的容量
+    _In_opt_ LPCCH lpDefaultChar,
+    _Out_opt_ LPBOOL lpUsedDefaultChar
+    );
+
+
+7- 有关于LPARAM WPARAM
+ typedef _W64 int INT_PTR, *PINT_PTR;
+ typedef _W64 unsigned int UINT_PTR, *PUINT_PTR;		typedef UINT_PTR    WPARAM;   64位无符号
+ 
+ typedef _W64 long LONG_PTR, *PLONG_PTR;				typedef LONG_PTR    LPARAM;	  64位有符号
+ typedef _W64 unsigned long ULONG_PTR, *PULONG_PTR;
+ 
+8-  LPCSTR与CString
+LPCSTR是一种字符串数据类型  L表示long指针  P表示这是一个指针  C表示是常量const  STR表示这个变量是一个字符串
+转换成CString
+LPCSTR lpStr = "test";
+CString str(lpStr);		//转换成活生生的字符串
+CString反转换
+CString str(_T("test"));
+LPCSTR lpStr = (LPCSTR)str;
+ 
+CString对象可以被认为是字符数组. 将CString看作实际的字符串，而不是指向字符串的指针.
+CString gray("Gray");
+CString cat("Cat");
+CString graycat = gray + cat;
+ 
+9- CString 中的Format成员使用需要注意哪些问题？
+function Format(const Format: string; const Args: array of const): string; overload; 
+-1- Format参数是一个格式字符串  Args是一个变体数组，即它里面可以有多个参数
+-2-格式指令具有以下的形式： "%" [index ":"] ["-"] [width] ["." prec] type 
+-3-type的类型 d，u，f，e，g，n，m，p，s，x. 
+-4-格式化指令
+ -索引-
+ [index ":"] ：index指示Args中参数显示的顺序 。   例如：Format("this is %d %d",12,13); 
+ 其中第一个%d的索引是0，第二个%d是1，所以字符显示的时候，是这样：this is 12 13 
+ 若定义为：Format("this is %1:d %0:d",12,13);   那么返回的字符串就变成了：this is 13 12 
+ 若定义为：Format("%d %d %d %0:d %d", 1, 2, 3, 4)    那么将返回的是：1 2 3 1 2 
+ 若想返回的是1 2 3 1 4，必须这样定义：Format("%d %d %d %0:d %3:d", 1, 2, 3, 4)   
+ 
+ -宽度-
+ 例如：Format("this is %4d",12);   返回的是：this is 12 
+ 如果Width的值小于参数的长度，则没有效果。
+
+ -向左对齐-
+ 例如：Format("this is %-4d,yes",12);   返回的是：this is 12 ,yes 
+ 
+ -精度-
+ 例如：Format('this is %.2f,1.1234);   返回的是： this is 1.12 
+ 又如：Format('this is %.7f,1.1234);   返回的是： this is 1.1234000 
+ 例如：Format('this is %.7d,1234);   返回的是：this is 0001234 
+ 例如：Format('this is %.2s,1234);   返回的是：this is 12 
+
+
+11.怎么解决  字符串直接不能复制的问题？
+char szSendMessage[MSGSIZE] = "你好，客户端,欢迎登录"  //这是初始化 可以直接使用
+szSendMessage[MSGSIZE] = "你好，客户端,欢迎登录"；		//这是复制 将会出现 无法从“const char [9]”转换为“char” 这个错误
+strcpy(szSendMessage,"你好，客户端,欢迎登录"); // 用函数复制就可以了
+
+12.启动程序为什么会出现 出现不可执行的操作  
+1- ID 与变量 不匹配
+
+
+1.WritePrivateProfileString 函数调用需要主要什么地方。
+1- 函数名解析
+BOOL WritePrivateProfileString(
+LPCTSTR lpAppName,		//文件名 ，提示信息的作用
+LPCTSTR lpKeyName,		//一个 lpAppName 的变量名
+LPCTSTR lpString,		//strName="张三";
+LPCTSTR lpFileName		//"c:\\stud\\student.ini" 保存信息的文件
+);
+
+2.如何向对话框完整的发送文字
+-1- 从DWORD->char->TCHAR->CString
+DWORD m_NetFWFileLen;
+char str[256];
+sprintf(str, "文件大小:%d", m_NetFWFileLen);	//1.格式化数据成字符串并存进窄字节数组
+
+TCHAR wBuf[512];
+MultiByteToWideChar(CP_ACP, 0, (LPCCH)str, sizeof(str), wBuf, sizeof(str));	//2.多字节转款成宽字节
+
+CString Str;
+Str.Format(_T("%s"), wBuf); //3.从数组元素转换成字符串
+
+m_NetFWFileSize.SetWindowText(Str.GetBuffer()); //4.发送
+
+
+7.适配器结构体
+#pragma comment(lib, "Iphlpapi.lib")  // error LNK2019: 无法解析的外部符号 _GetAdaptersInfo@8 引用动态库
+
+#define MAX_ADAPTER_NAME_LENGTH 256
+#define MAX_ADAPTER_DESCRIPTION_LENGTH 128
+#define MAX_ADAPTER_ADDRESS_LENGTH 8
+typedef struct _IP_ADAPTER_INFO {
+    struct _IP_ADAPTER_INFO* Next;//指向链表中下一个适配器信息的指针
+    DWORD ComboIndex;//预留值
+    char AdapterName[MAX_ADAPTER_NAME_LENGTH + 4];//适配器名称
+    char Description[MAX_ADAPTER_DESCRIPTION_LENGTH + 4];//适配器描述
+    UINT AddressLength;//适配器硬件地址以字节计算的长度
+    BYTE Address[MAX_ADAPTER_ADDRESS_LENGTH];//硬件地址以BYTE数组所表示
+    DWORD Index;//适配器索引
+    UINT Type;//适配器类型
+    UINT DhcpEnabled;//指定这个适配器是否开启DHCP
+    PIP_ADDR_STRING CurrentIpAddress;//预留值
+    IP_ADDR_STRING IpAddressList;//该适配器的IPv4地址链表
+    IP_ADDR_STRING GatewayList;//该适配器的网关IPv4地址链表
+    IP_ADDR_STRING DhcpServer;//该适配器的DHCP服务器的IPv4 地址链表
+    BOOL HaveWins;
+    IP_ADDR_STRING PrimaryWinsServer;
+    IP_ADDR_STRING SecondaryWinsServer;
+    time_t LeaseObtained;
+    time_t LeaseExpires;
+} IP_ADAPTER_INFO,*PIP_ADAPTER_INFO;
+
+8.IP地址网络字节与点的兑换
+char FAR * inet_ntoa( struct in_addr in );
+举例：char * ipaddr=NULL;
+char addr[20];
+in_addr inaddr;
+inaddr. s_addr=16777343;
+ipaddr= inet_ntoa(inaddr);
+strcpy(addr,ipaddr);  
+这样addr的值就变为127.0.0.1。
+
+unsigned long inet_addr( const char FAR * cp );
+举例：inet_addr("192.1.8.84")=1409810880
+inet_addr("127.0.0.1")= 16777343
+*/
+
+/*5.GDB知识点
+1.申请堆内存：int *p;   p=(int*)malloc(N*sizeof(int));
+2.gcc -c xx1.c -o xx1.o  独立编译  gcc -c xx2.c -o xx2.o  独立编译  gcc xx1.o xx2.o -o xx  链接
+3.gcc xx1.c xx2.c -o xx  一次完成
+3.gcc -Wall xx.c -o xx   显示所用警告
+4.gcc -g xx.c -o xx   加调试信息
+5.gdb xx   进入gdb调试
+6.list 每次显示10行
+7.break num  设置断点
+8.break info 显示断点信息及执行到的次数
+9.run 执行当前可执行的程序
+10.step  执行一行源代码并进入函数内部
+11.next 执行一行源代码不进入函数内部
+11.continue 继续执行正在调试的程序
+12.print 参数 直接打印参数
+13.quit 退出 
+14.kill  终止正在调试的可执行文件
+15.info func 显示所有的函数名
+16.info local 显示当前函数的局部变量
+17.struct xx{}a; 定义一个结构体
+18.a Array[100]; 定义结构体数组
+
+
+*/
+
+/*6.C++知识点 
+1.C++类中的成员叫做属性，类中的函数叫方法。
+2.C++输入输出流头文件：iostream ：注意，没有.h哦！
+3.C++文件以.cpp后缀,以g++编译；
+4.使用 using namespace std;这句话，是因为标准C++库提供的对象都存放在std这个标准名字空中，比如cin、cout、endl
+5.类的三种使用方法：
+(1):using namespace std;
+(2): std::cout<<"Nice to meet you!"<<std::endl; endl起到换行的作用
+(3):using std::cout;  using std::endl;
+6.比C语言多的一种数据类型：bool类型											【与C语言不同】
+7.用v选中文本之后可以按y进行复制，如果按d就表示剪切，之后按p进行粘贴
+8.Linux全部删除 esc>>dG 全部复制 ggyG  全部高亮显示 ggVG
+9.C++浮点控制   cout<<fixed<<setprecision(2)<<y<<endl;						【与C语言不同】
+10.C++重载：函数重载即两个或以上的函数，函数名相同，但形参类型或个数不同  【与C语言不同】
+11.C++ 函数模板： template<class 类型名1，class 类型名2…>
+11.C++ 内联函数 ： inline 加函数 ，用于经常被调用到的函数
+12.private ：私有类型，只能够被内部调用，起封装保护的作用 ，通过public，也就是外部接口调用
+13.对象引用：Student A; Student &Aq=A; Aq.print();  【与C语言不同】
+14.构造函数：在类里，与类名同名，且没有返回值的一个函数
+15.析构函数：名字前有一个个波浪线~，用来区分构造函数，构造函数执行完后执行虚构函数
+
+1.与类名同名，且形参是本类对象的引用类型的函数，叫做拷贝构造函数(Copy Constrctor);
+与构造函数一样，当我们不主动定义的时候，系统也会自动生成一个
+
+当调用拷贝构造函数时，析构函数也会被调用，默认的拷贝函数时浅拷贝，不可以分配内存
+
+2.友元函数与友元类：外部的函数声明为友元类型，赋予它可以访问类内私有成员的权利，无论是友元函数还是友元类。都不能使用类内的this指针
+
+优点：更方便快捷的访问类内的私有成员   缺点：打破了C++中的封装思想
+
+3.const，所谓的“常”，或或者说被“常”修饰的变量，是不可修改、被改变的 ：比如修饰一张图片
+C++中，const修饰一般的变量叫常变量，修饰某个对象，变成常对象，修饰类的数据成员和成员函数，叫做类的常数据成员和常成员函数。
+
+4.继承与派生：一种关系 ：子承父业
+
+5.三种继承方式：
+1.公有继承
+
+2.私有继承
+
+6.派生类的构造函数：
+调用派生类的构造函数，会先调用基类的派生函数
+
+7.虚基类
+class Father1:virtual public Grandfather
+class Father2:virtual public Grandfather
+
+
+8.多态性概述:
+编译时多态:静态联编,如函数重载，函数模板  无论引用谁，默认指向自己
+运行时多态:动态联编->虚函数 ,在基类定义:基类可以根据类型引用派生类 
+
+9.虚函数：
+1.   虚函数不能是静态成员函数，或友元函数，因为它们不属于某个对象。
+2.   内联函数不能在运行中动态确定其位置，即使虚函数在类的内部定义，编译时，仍将看作非内联，
+3.   构造函数不能是虚函数，析构函数可以是虚函数，而且通常声明为虚函数。
+
+*/
+
+/*7.can总线知识点
+1.CAN_H与CAN_L之差为2.5V左右。
+2.当CAN_H与CAN_L之差为0，为隐性电平，逻辑为1,为何起为隐性,猜测：无干扰状态下处于平静的2.5V，因此为隐性。
+3.只要有一个单元输出显性电平，总线上即为显性电平。
+4.can总线的起始端都设有120欧姆的电阻做阻抗匹配;
+
+can协议的五种帧
+数据帧->遥控帧->错误帧->过载帧->帧间隔
+
+
+
+数据帧的7个段：----->
+
+1.帧起始:数据头，1位显性电平表示起始，此时电位差最大，说明说数据即将发送。
+2.仲裁段：数据的优先级   实现机制，当多个单元同时发送数据，当发送到仲裁段时，连续发送显性电平多的单元获得优先权 ，失利者转为接收模式
+1-2：标识符，一般为唯一的11位
+
+3.控制段：由六位组成 指示数据段的字节数
+4.数据段：0~8字节的数据
+5.CRC：
+6.ACK
+7.结束
+
+1.CAN synchronisation jump width:
+CAN_SJW：重新同步跳跃宽度(SJW) 。定义了在每位中可以延长或缩短多少个时间单元的上限。其值可以编程为1到4个时间单元。
+
+2.CAN time quantum in bit segment
+CAN_BS1：时间段1(BS1)：定义采样点的位置。其值可以编程为1到16个时间单元，但也可以被自动延长，以补偿因为网络中不同节点的频率差异所造成的相位的正向漂移。
+CAN_BS2：时间段2(BS2)：定义发送点的位置。其值可以编程为1到8个时间单元，但也可以被自动缩短以补偿相位的负向漂移。
+
+3.分频系数：
+波特率 =Fpclk1/((tbs1+1+tbs2+1)*brp); 
+
+4.Can 模式：
+普通模式  CAN_Mode_Normal
+回环模式  CAN_Mode_LoopBack
+
+
+1、14个过滤器组：处理CAN接收过滤问题，每个组包含两个32位寄存器CAN_FxR0和CAN_FxR1，设置为屏蔽位模式下，一个作为标识符寄存器，另一个作为屏蔽码寄存器
+2. 在屏蔽位模式下，标识符寄存器和屏蔽寄存器一起，指定报文标识符的任何一位，应该按照“必须匹配”或“不用关心”处理。
+3.标识符列表模式下，屏蔽寄存器也被当作标识符寄存器用。因此，不是采用一个标识符加一个屏蔽位的方式，而是使用2个标识符寄存器。
+  接收报文标识符的每一位都必须跟过滤器标识符相同。
+
+4.  ●1个32位过滤器，包括：STDID[10:0]、EXTID[17:0]、IDE和RTR位
+    ●2个16位过滤器，包括：STDID[10:0]、IDE、RTR和EXTID[17:15]位
+	
+	1.数据帧优先于扩展帧 
+理由：RTR：远程发送请求位 ，后面是代替远程远程请求位，在数据帧中RTR为显性，在远程帧为隐性
+
+*/
+
+/*8.C语言基础知识
+
+2.结构体对齐
+	__packed是字节对齐的意思。
+	比如说int float double char它的总大小是4 + 4 + 8 + 1 = 17
+
+3.波特率的概念
+	比如波特率为9600，即传输速度是9600bit/s，等于1200字节每秒的传输速度;
+
+4.三目运算
+1.<表达式1> ? <表达式2> : <表达式3>; "?"运算符的含义是：先求表达式1的值，如果为真，则执行表达式2，并返回表达式2的结果；
+如果表达式1的值为假，则执行表达式3，并返回表达式3的结果。
+2.(x>y?x:y)>z?(x>y?x:y):z
+
+strcpy在copy完abcde之后会补上一个'\0' 对str剩下的空间不做处理 原来是什么现在就是什么
+
+将文件转成16进制数
+1.假设文件长度x，则16进制数的缓冲区为2x。
+u8 bufS[x];
+u16 bufI[x];
+for(i=0;i<x;i++)
+{
+	bufI[x] = bufS[i]>>4&0x0f;
+	bufI[x]<<8;
+	bufI[x]=bufS[i]&0x0f;
+}
+
+void GetMemory(char *p) 
+{
+	p = (char *)malloc(100);			//已经存放了一个地址
+}
+void Test(void)
+{
+	char *str = NULL;					//指针指向NULL
+	GetMemory(str);						//str还是指向NULL p指向str
+	strcpy(str, "hello world");			
+	printf(str);
+}
+答：程序崩溃因为GetMemory并不能
+传递动态内存，Test函数中的 str一
+直都是NULL
+strcpy(str, "hello world");
+将使程序崩溃 
+
+
+（2）
+char *GetMemory(void) 
+{
+char p[] = "hello world";
+return p;
+}
+void Test(void)
+{
+char *str = NULL;
+str = GetMemory();
+printf(str);
+}
+答：可能是乱码 因为GetMemory返回的
+是指向栈内存的指针，该指针的地址
+不是 NULL，但其原现的内容已经被清
+除，新内容不可知
+
+
+（3）
+void GetMemory2(char **p, int num) 
+{
+	*p = (char *)malloc(num);
+}
+void Test(void)
+{
+char *str = NULL;
+GetMemory(&str, 100);
+strcpy(str, "hello");
+printf(str);
+}
+答： （1）能够输出hello （2）内存泄漏没有free
+
+
+（4）
+void Test(void) 
+{
+char *str = (char *) malloc(100);
+strcpy(str, hello);
+free(str);
+if(str != NULL)
+{
+	strcpy(str, world);
+	printf(str);
+}
+}
+答：篡改动态内存区的内容，后果难以
+预料，非常危险 因为free(str);之后
+str成为野指针，if(str != NULL)语句
+不起作用
+
+
+六、编写各种str函数？
+strcpy函数
+char *my_strcpy(char *dest, const char *src)
+{
+	char *temp;
+
+	assert(dest!=NULL && str != NULL);
+	while((*dest++ = *src++) != '\0');
+
+	return temp;
+}
+
+
+char *my_strcat(char *dest, const char *stc)
+{
+	char *temp;
+
+	assert(dest!=NULL && str != NULL);
+	while(*dest)
+	dest++;
+	while((*dest++ = *stc++) != '\0');
+
+	return temp;
+}
+
+
+char my_strstr(const char *str, char c)
+{
+	for(; *str != c; str++)
+	if(*str == '\0')
+	return NULL;
+	else
+	return str;
+}
+
+
+int my_strlen(const char *str)
+{
+	char *temp = str;
+	for(; *temp != '\0'; temp++);
+	return (int)(temp - str);
+}
+
+
+void *my_memcpy(void * dest, const void *src, size_t count)
+{
+	char *temp_dest = (char *)dest;
+	char *temp_src = (char *)src;
+
+	assert(dest != NULL && src != NULL);
+
+	while(count--)
+	*temp_dest++ = *temp_src++;
+	return dest;
+}
+
+
+int my_strcmp(char *str1, char *str2)
+{
+	int ret = 0;
+	while((ret = *(unsigned char*)str1 - *(unsigned char*)str2)&&*str1&&*str2)
+	{
+		str1++;
+		str2++;
+		if(ret < 0)
+		ret = -1;
+		else if(ret > 0)
+		ret = 1;
+		return ret;
+	}
+
+}
+//？
+
+七、链表操作
+（1）逆序
+node *reverse_node(node *head)
+{
+	node *record, *current;
+
+	if(head == NULL || head->next == NULL)
+	return head;
+
+	current = head->next;
+	head->next = NULL;
+	while(current != NULL)
+	{
+		record = current->next;
+		current->next = head->next;
+		head->next = current;
+		current = record;
+	}
+return head;
+}
+（2）插入
+node *add_node(node *head, node *data)
+{
+	node *current = head;
+	while(current->next != NULL)
+	current = current->next;
+	current->next = data;
+	data->next = NULL;
+	return head;
+}
+（3）删除
+node *del_node(node *head, node *data)
+{
+	node *pf,*pb;
+	pf = head->next;
+
+	while(pf != NULL && pf->data != data->data)
+	{
+	pb = pf;
+	pf = pf->next;
+	}
+	if(pf->data == data->data)
+	{
+	pb->next = pf->next;
+	free(pf);
+}
+else
+printf("NO node!\n");
+}
+（4）单链表（非循环）倒数第4个元素？
+思路：让第一个元素先走四步，然后两个游标指针一起走。
+node *Get_Node(node *head)
+{
+	int i;
+	node *first = head;
+	node *back  = head;
+
+	for(i=0; i<4; i++)
+	{
+	if(first->next == NULL)
+	printf("Node less than four!\n");
+	first = first->next;
+	}
+	while(first != NULL)
+	{
+	first = first->next;
+	back = back->next;
+	}
+	return back;
+}
+（5）如何找出链表中间元素？
+思路：让前一个指针每次走两步，后一个指针每次走一步。
+node *Get_middle_node(node *head)
+{
+	node *first = head;
+	node *back = head;
+
+	while(first != NULL)
+	{
+	first = first->next->next;
+	back = back->next;
+	}
+	return back;
+}
+（6）删除一个无头单链表的一个节点（链表很长10万以上）？
+思路：把当前节点的下个节点数据拷贝到当前节点，然后删除下一个节点。
+void del_node(node *del_node)
+{
+	node *record = del_node->next;
+	node *current = del_node;
+
+	current->data = record->data;  //数据拷贝，假设结构体数据为data
+	current->next = record->next;  //指针跳转
+	free(record);
+}
+（7）如何判断一个单链表是否有环？
+思路：我们用一个步长1和一个步长2的游标指针遍历链表，观察是否有两个游标相遇的时刻。
+int judge_list_circle(node *head)
+{
+	node *first = head;
+	node *back = head;
+
+	while(first->next != NULL && back->next->next != NULL)
+	{
+	first = first->next;
+	back = back->next->next;
+	if(first == back)
+	return true;
+	}
+	return false;
+}
+
+
+八、两种排序法(冒泡排序、选择排序)
+void bubble(int a[], int n)
+{
+	int i,j,temp;
+
+	for(i=0; i<n-1; i++)
+	for(j=i+1; j<n; j++)
+	{
+	if(a[i] > a[j])
+	{
+	temp = a[i];
+	a[i] = a[j];
+	a[j] = temp;
+	}
+	}
+	return 0;
+}
+
+
+void choise(int a[], int n)
+{
+	int i, j, temp, min;
+
+	for(i=0; i<n-1; i++)
+	{
+		min=i;
+		if(j=i+1; j<n; j++)
+		{
+		if(a[i] > a[j])
+		min = j;
+		}
+		if(min != i)
+		{
+		temp = a[i];
+		a[i] = a[min];
+		a[min] = temp;
+		}
+	}
+	return 0;
+}
+
+
+九、字符串反转？
+char str_rev(char *str, size_t len)
+{
+	char *start = str;
+	char *end = str+len-1;
+	char ch;
+
+	if(str != NULL)
+	{
+	while(start < end)
+	{
+	ch = *start;
+	*start++ = *end;
+	*end-- = ch;
+	}
+	}
+	return str;
+}
+
+
+十、关键字volatile有什么含意 并给出三个不同的例子。
+一个定义为volatile的变量是说这变量可能会被意想不到地改变，这样，编译器就不会
+去假设这个变量的值了。精确地说就是，优化器在用到这个变量时必须每次都小心地重
+新读取这个变量的值，而不是使用保存在寄存器里的备份。下面是volatile变量的几个例子：
+1) 并行设备的硬件寄存器（如：状态寄存器）；
+2) 一个中断服务子程序中会访问到的非自动变量；
+3) 多线程应用中被几个任务共享的变量；
+
+
+1) 一个参数既可以是const还可以是volatile吗？解释为什么。
+2) 一个指针可以是volatile 吗？解释为什么。
+3) 下面的函数有什么错误：
+int square(volatile int *ptr)
+{
+  return *ptr  *  *ptr;
+}
+答案：
+1) 是的。一个例子是只读的状态寄存器。它是volatile因为它可能被意想
+不到地改变。它是const因为程序不应该试图去修改它。
+2) 是的。尽管这并不很常见。一个例子是当一个中断服务子程序修该一个指向一个buffer的指针时。
+3)这段代码的目的是用来返指针*ptr指向值的平方，但是，由于*ptr指向
+一个volatile型参数，编译器将产生类似下面的代码：
+int square(volatile int *ptr)
+{
+	int a,b;
+	a = *ptr;
+	b = *ptr;
+	return a * b;
+	}
+	由于*ptr的值可能被意想不到地该变，因此a和b可能是不同的。结果，这段代码可能返不是你所期望的平方值！正确的代码如下：
+	long square(volatile int *ptr)
+	{
+	int a;
+	a = *ptr;
+	return a * a;
+}
+
+
+十一、内存分配应该注意什么问题？
+1、检查内存分配是否成功。
+2、内存生命周期，程序结束时记得free，避免内存泄露。
+3、使用过程中避免指针越界访问，会导致不必要的错误。
+
+
+十二、字符串回文判断？
+int str_is_resv(char *str)
+{ 
+	int i;
+	int  len = strlen(str);
+	char *start = str;
+	char *end   = str+len-1;
+
+	for(i=0; i<len/2; i++)
+	{
+	if(*(start+i) != *(end-i))
+	return -1;
+	}
+	return 0;
+}
+
+
+十三、字符串循环左移？
+//循环左移，库函数实现 
+char *str_rev1(char *str, int bit)
+{
+	int len = strlen(str);
+	int n = bit%len;
+	char temp[128] = "";
+
+	strcpy(temp, str);
+	strncpy(str, str+n, len-n);
+	str[len-n] = '\0';
+	strncat(str, temp, n);
+
+	return str;
+}
+
+
+//循环左移，不用库函数
+char *str_rev2(char *str, int bit)
+{
+	char temp_str[128];
+	int i,j;
+	int str_len = strlen(str);
+	bit = bit%str_len;
+
+	for(i=0; i<bit; i++)
+	{
+	*(temp_str+i) = *(str+i);
+	}
+
+
+	for(i=0; i<str_len-bit; i++)
+	{
+	*(str+i) = *(str+bit+i);
+	}
+
+
+	for(j=0; j<bit; j++)
+	{
+	*(str+i+j) = *(temp_str+j);
+	}
+	return str;
+}
+
+
+十四、如何编程判断大小端？
+返回1表示小端，返回0表示大端
+int check_cpu_endian()
+{
+	union 
+	{
+	unsigned int a;
+	unsigned char b;
+	}s;
+	s.a = 1;      //0x01 
+	return (s.b == 1);
+}
+
+
+十五、如何判断一个字节(char)里面多少bit被置1？
+int count_bit(int value)
+{
+	int i, count=0;
+
+	for(i=0; i<8; i++)
+	{
+	if(value&0x01 == 0x01)
+	count++;
+	value  = value >> 0x01;
+	}
+	return count;
+}
+
+
+十六、判断一个整数里面有多少个1？
+int count_bit(int value)
+{
+	int count=0; 
+
+	while(value)
+	{
+	count++;
+	value &= value-1;
+	}
+	return count;
+}
+
+
+十七、二分法查找？
+int mid_serach(int arry[], int key, int size)
+{
+	int low, high, mid;
+
+	low = 0;
+	high = size-1;
+
+	while(low < high)
+	{
+	mid = (low+high)/2;
+	if(key == arry[mid])
+	return mid;
+	else if(key < arry[mid])
+	high = mid-1;
+	else if(key > arry[mid])
+	low = mid+1;
+	}
+	return -1;
+}
+
+
+十八、字符串转成十进制数？
+int str_to_int(char *str)
+{
+	int temp = 0;
+
+
+	while(*str != '\0')
+	{
+	temp = temp*10 + *str - '0';
+	str++;
+	}
+	//temp = atol(str);    //库函数一步完成
+	return temp;
+}
+
+
+十九、OSI模型分哪几层？
+物理层、数据链路层、网络层、传输层、应用层、表示层、会话层
+集线器hub工作在OSI参考模型的（物理）层；
+网卡工作在OSI参考模型的（物理）层；
+路由器router工作在OSI参考模型的（网络）层；
+交换机Switch工作在OSI参考模型的（数据链路）层。
+
+
+二十、给定某个整数n(0-10000),求小于等于n的整数中与7有关的整数
+（被7整除或者数字中含有7，只要求求出个数，不用列觉出每一个数字）
+int fun(int data)
+{
+	int count=0;
+	int i;
+	int first,second,third,four;
+
+	for(i=1; i<=data; i++)
+	{
+	first  = i%10;
+	second = i/10%10;
+	third  = i/100%10;
+	four   = i/1000;
+	if ((i%7 == 0) || (first == 7) || (second == 7) || (third == 7) || (four == 7)) 
+	{
+	//printf("qian bai shi ge is:%d %d %d %d\n", four, third, second, first);
+	count++;
+	}
+	}
+	return count;
+}
+
+
+二十一、将字符串中每个单词的第一个字符变为大写？
+char *fun(char *str)
+{
+	int i;
+	int flag = -1;
+	int len = strlen(str);
+
+	if(islower(str[0]))
+	{
+	str[0] = toupper(str[0]);
+	}
+
+	for(i=1; i<len; i++)
+	{
+	if(str[i]==' ' && islower(str[i+1]))
+	{
+	str[i+1] = toupper(str[i+1]);
+	}
+
+	}
+	return str;
+}
+
+
+二十二、统计出具有n个元素的一维整数数组中大于等于
+所有元素平均值的元素个数。验证该函数？
+
+
+int fun(int a[], int size)
+{
+	int i=0;
+	float sum=0, aver=0;
+	int count=0; 
+
+	for(i=0; i<size; i++)
+	sum +=a[i];
+	aver = sum/size;
+
+	for(i=0; i<size; i++)
+	{
+	if(a[i] > aver)
+	count++;
+	}
+	printf("The aver is %f\n", aver);
+
+	return count;
+}
+*/
+
+/*9.线性结构
+1.四个特征：第一个元素、后继元素、前驱元素、最后一个元素
+
+(1).线性表：一个节点有且仅有一个前驱和后续、描述 k1(第一个元素) k2 kn(最后一个元素)
+
+线性表的基本操作：
+0、储存结构
+#include <stdio.h>
+#include <stdlib.h>
+
+#define TRUE 1
+#define FALSE 0
+#define OK 1
+#define ERROR 0
+#define INIT_SIZE 10        //初始化表长
+#define INCREMENT_SIZE 5    //分配增量
+
+typedef int Status;
+typedey int Elemtype;
+typdef struct
+{
+	Elemtype *elem;
+	int length;
+	int size;
+}SqList;
+
+1、初始化
+Status InitList(SqList *L)
+{
+	L->elem=(Elemtype)malloc(INIT_SIZE*sizeof(Elemtype));		//获取内存空间		
+	if(!L->elem)
+	{
+		return ERROR;
+	}
+	L->length=0;
+	L->size=INIT_SIZE;
+}
+
+2、销毁
+Status DestroyList(SqList *L)
+{
+	free(L-elem);
+	L->length=0;
+	L-size=0;
+	return OK;
+}
+
+3、重置为空表
+Status ClearList(SqList *L)
+{
+	L-length=0;
+	return OK;
+}
+
+4、判断是否为空
+Status isEmpty(SqList *L)
+{
+	if(L->length==0)
+	{
+		return OK;
+	}
+	else
+	{
+		return FALSE;
+	}
+}
+
+5、获取长度
+Status getLength(SqList *L)
+{
+	return L->length;
+}
+6、根据位置获取对应元素
+Status GetElem(SqList *L,int i,Elemtype *e)
+{
+	if(i<1||i>L-length)
+	{
+		return ERROR;
+	}
+	*e=L-elem[i-1];
+	return OK;
+}
+
+比较元素
+Status compare(Elemtype *e1,Elemtype *e2)
+{
+	if(*e1=*e2)
+	{
+		return 0;
+	}else if(e1<e2)
+	{
+		return -1;
+	}
+	else{
+		return 1;
+	}
+}
+
+7、查找元素
+
+
+
+
+
+8、获取指定元素的前驱和后续元素
+9、插入元素
+10、遍历元素
+
+
+
+
+*/
+
+/*11.GIT使用手册
+理念：不允许使用update、fetch、pull，每次提交前clone，采用工具比较不同
+
+
+查看git配置: cmd-->git config -list
+查看版本号:git version
+
+1.注册线上仓库：
+邮箱：857413240@qq.com
+用户名:lin-zi-jun
+密码：linzijun888
+
+2.add a bio
+添加一个标签
+
+3.Edit Profile
+修改资料
+
+1.拉取pull
+提交之前：pull，保证好与仓库相同
+：若大型项目，容易出现同一个文件冲突，也即是重复内容
+若clone后对照，将不会出现冲突
+
+
+2.获取
+
+3.推送：推送到在线仓库 推送的是版本push
+(1):选择本地项目
+(2):配置远程仓库
+(3):clone 远程仓库到本地仓库
+1.复制ULR 2.填入提示信息
+
+git push origin master的意思就是上传本地当前分支代码到master分支
+failed to push some refs to :意思是本地和远程的文件应该合并后才能上传本地的新文件
+问题（Non-fast-forward）的出现原因在于：git仓库中已经有一部分代码，所以它不允许你直接把你的代码覆盖上去。于是你有2个选择方式：
+先比较差异再推送
+
+(4):commit 本地代码到本地仓库
+1.直接commit
+2.比价差异是与本地仓库比较
+
+
+(5):推送：推送到在线仓库
+
+
+
+
+4.同步
+
+5.提交 ：提交到本地仓库
+
+6.比较差异
+
+7.克隆：从服务器端下载版本
+
+
+8.分支：
+1.出现 Bug Fix Branch
+2.产品分支：
+3.代码集成
+4.并行开发分支
+
+主干修改不会影响分支，分支修改也不会影响主干
+
+
+
+
+
+*/
+
+/*12.链表知识点
+
+*/
+
+/*13.iiC知识点
+
+*/
+
+/*14.UART知识点
+*/
+
+/*15.PWM知识点
+PWM:对脉冲宽度进行调制
+依赖资源：定时器
+
+
+
+*/
+
+/*16.SPI知识点 图
+1.接口：数据线-MISO(主进从出)、MOSI(从进主出)、CS片选、CLK时钟线。
+2.主机和从机都有一个位移寄存器配合时钟线来进行时钟的同步。每触发一次，进行一个字节的通信。
+3.时钟极性：CPOL-CPOL=0，串行同步时钟空闲为低。CPOL=1，串行同步时钟空闲为高。
+4.时钟相位：CPHA-CPHA=0，在第一个跳变沿数据被采样。CPHA=1，在第二个跳边沿被采样。
+由此：SPI模块之间的极性和相位应该一致。
+
+针对四种工作模式画图。。。
+*/
+
+/*17.Sram
+
+*/
+
+/*18.nandflash
+
+*/
+
+/*19.UCGUI
+*/
+
+/*20.用过的芯片基本详情
+1.VP230:
+(1).要真正的实现CAN通信，一个节点就需要一个控制器和收发器。VP230是一个CAN总线的收发芯片,STM32集成了CAN控制器模块。
+芯片封装类型SOP8。
+1号引脚：TXT(Driver input)、4号引脚RXT(Receiver output);
+2、3号为电源，
+5、8号:悬空 
+6号CAN_L(Low bus output),7号：CAN_H(High bus output),中间匹配120欧电阻。
+
+
+
+
+100.STM32F103ZET6:
+1.CAN资源：有两个Can，分为主从。
+
+
+*/
+
+/*21.传输协议
+1.Ymode:
+#define SOH                     (0x01)  //start of 128-byte data packet   包头发送
+#define STX                     (0x02)  // start of 1024-byte data packet 正文发送
+#define EOT                     (0x04)  // end of transmission 			  
+#define ACK                     (0x06)  // acknowledge 
+#define NAK                     (0x15)  // negative acknowledge 
+#define CA                      (0x18)  // two of these in succession aborts transfer   两个CA表示传输完成 
+#define CRC16                   (0x43)  // 'C' == 0x43, request 16-bit CRC 				//接收到CRC16 		
+
+#define ABORT1                  (0x41)  // 'A' == 0x41, abort by user 
+#define ABORT2                  (0x61)  // 'a' == 0x61, abort by user 
+
+
+发送方收到'C'后，发送第一帧数据包，内容如下：
+
+SOH 00 FF Foo.c NUL[123] CRC CRC
+
+第1字节SOH:表示本包数据区大小有128字节。如果头为STX表示本包数据区大小为1024
+
+第2字节00: 编号，第一包为00,第二包为01，第三包为02依次累加。到FF后继续从0循环递增。
+
+第3字节FF: 编号的反码。 编号为00 对应FF，为01对应FE，以此类推。
+
+第4字节到最后两字节：若第1字节为SOH时有128字节，为STX时有1024字节，这部分为数据区。“Foo.c” 文件名， 超级终端下，在文件名后还有文件大小。
+官方dome也是因为使用了这个文件大小进行比对。这就是为什么用SecureCRT中的YMODEM协议而无法正确传输的原因。在文件名和文件大小之后，如果不满128字节，以0补满。
+最后两字节：这里需要注意，只有数据部分参与了效CRC验,不包括头和编码部分。
+
+2.TCP\IP:
+
+
+*/
+
+/*22.FIFO环形缓冲
+1.FIFO环形缓冲
+参数：0:FIFO_BUF[X]  1:FIFO.IN  2:FIFO.OUT  3:FIFO.LEN   4:FIFO.MAX_LEN
+	(1):进入串口接收中断,FIFO.IN指向上一次中断接收的尾部，FIFO.LEN从0向上生长，中断结束，退出接收，只有FIFO.IN>=FIFO.MAN_LEN时，FIFO.IN=0;
+	(2):轮询FIFO.LEN状态，FIFO.LEN>0,则FIFO_BUF有数据，FIFO.OUT指向上一次接收的尾部，处理数据，FIFO.OUT向上增长，FIFO.LEN--,当FIFO.LEN=0时，接收结束
+	只有FIFO.OUT>=FIFO.MAN_LEN时，FIFO.OUT=0;
+	(3):注意事项：所发送的数据量不能超过FIFO.MAX_LEN,否则数据将被覆盖;
+ 
+	疑惑点：如果第一次中断接收完成，进入第一次处理数据的过程中发生第二次中断，此时第一次数据处理将被中断，FIFO.LEN开始++，直至第二次接收完成，
+	中断结束，CPU回到第一次数据处理，此时处理的数据将是第一次未处理完的数据与第二次刚接收的数据。
+*/
+
+/*23.Linux
+5.重定向输出及查看
+>文件名:重定向输出
+查看文件：more out 、less、cat
+比较文件：diff -w
+
+6.主函数参数
+int main(int argc,char ** argv )
+argc 为实参的格式
+程序本身就是一个实参
+argv[0]：输入的第一个参数
+argv[1]:输入的第二个参数
+以此类推：以字符的形式保存 “”以字符串的形式保存
+
+*/
+
+/*24.STM32基础
+NVIC:
+
+
+
+
+
+
+*/
+
+/*25.Cortex-M3基础
+
+因为处理器架构与操作系统有所关联，所以必须要了解
+Thumb(ARM体系结构的指令集)
+Thumb状态下，单寄存器加载和存储指令只能访问寄存器R0~R7；
+NMI全名Non Maskable Interrupt
+
+(一).Cortex-M3通用寄存器
+通用寄存器有R0-R15
+1.R0-R7是低组寄存器，32位字长，复位后初始值不可预料。
+
+2.R8-R12高组，32位字长，复位后初始值不可预料。
+
+3.R13:堆栈指针:堆栈指针用于访问堆栈
+主堆栈指针(MSP)或SP_main，缺省的堆栈指针。
+进程堆栈指针(PSP)或SP_process。
+PUSH和POP指令默认使用SP(R13)。
+PUSH将元素推进栈
+POP将元素推出栈
+
+4.R14:连接寄存器(LR) :连接函数与函数之间的寄存器
+用于调用子程序是储存返回地址。
+当进入异常服务后，LR的值将会被自动更新为EXC_RETURN;
+EXC_RETURN 段位如下: 手册26页
+
+
+5.R15:程序计数器(PC)
+CM3中至少是半字对齐，所以PC的LSB读回总是0; 
+
+6.特殊功能寄存器:
+(1):PSR :程序状态寄存器 :
+应用程序状态寄存器:APSR
+中断号程序状态寄存器:IPSR
+在进入ISR时，CM3会自动把一些寄存器压栈
+
+执行程序状态寄存器:EPSR
+ 
+MRS与MSR 传送指令 
+MRS R0，CPSR   @传送CPSR的内容到R0
+MRS R0，SPSR   @传送SPSR的内容到R0
+MSR CPSR，R0   @传送R0的内容到CPSR
+MSR SPSR，R0   @传送R0的内容到SPSR
+
+(2)中断屏蔽寄存器
+1.PRIMASK:只有一个位，除了不控制硬件响应和NMI，该寄存器0表示不屏蔽中断，1表示屏蔽所有中断。
+2.faultMask:也只有一位，置1时，只有NMI可以响应 人死账清，专门留给OS用
+3.BASEPRI:最多有9位，定义被屏蔽的优先级阈值
+
+CPSID I ;PRIMASK=1, ;关中断
+CPSIE I ;PRIMASK=0, ;开中断
+CPSID F ;FAULTMASK=1, ;关异常
+CPSIE F ;FAULTMASK=0, ;开异常
+
+7.控制寄存器(CONTROL)
+CM3只有两位
+CONTROL[0]:0=特权级线程模式  1=用户级线程模式
+在特权级的操作下才可以写。一旦进入用户模式：要想返回特权级模式，需要触发一个软中断，然后修改该位。
+
+CONTROL[1]:0=选择MSP  1=PSP
+在handler模式 ,CONTROL[1]总是0;
+
+
+
+
+(二).操作系统模式和特权模式
+意义:为了区别普通应用程序和异常服务(包括中断)例程的代码
+特权级:可以访问所有寄存器 ，异常必须在特权机下执行 特权级可以直接切换到用户级，用户级需通过中断修改CONTROL[0]回到特权级。
+
+（三）.堆栈
+1.向下生长，每PUSH一次，SP自减4,每POP一次，自增4。
+
+双堆栈机制:
+
+
+
+4.SVC和PendSV异常
+SVR UCOS未用到
+
+PendSV：悬挂异常，缓期执行
+
+
+
+
+
+
+
+
+
+*/
+
+/*26.UCOSIII
+RTOS:实时操作系统
+
+CPU_core.c
+包含所有使用的CPU架构
+中断关闭和中断打开分别由在文件cpu_core.c中的CPU_CRITICAL_ENTERN()和CPU_CRITICAL_EXIT()两个宏实现。
+
+cpu_core.h
+包好函数原型以及用来测量中断关闭时间变量的定义。
+
+cpu_def.h
+包含各种#define
+
+cpu.h
+包含以下类型定义，是可以兼容各个不同的CPU架构，指定CPU使用的是大端模式还是小端模式。
+
+cpu_a.asm
+包含了一些汇编写的函数，可用来开中断和关中断。
+
+cpu_c.c
+包含一些特定的CPU架构
+
+
+(1)开始任务前的步骤：
+1.调用OS_Init();初始化UCOSIII
+2.创建start_tast任务
+3.在start_tast任务中创建其他任务
+4.调用OSStart()启动任务。
+
+OS_ERR err;
+...
+OSInit(&err); //OSInit(&err)必须先于其他所有函数执行
+OS_CRITICAL_ENTER();    //进入临界区
+OSTaskCreate();
+OS_CRITICAL_EXIT();     //退出临界区  
+...
+OSStart(&err);
+
+
+
+(2)任务状态
+UCOSIII只支持单核CPU，所以在某一时刻只会有一个任务获得CPU使用权进入运行状态，其他任务会进入其他状态。
+
+状态：
+1.休眠状态：不受UCOSIII管理，未调用OSTaskCreat()函数进行创建。
+2.就绪态：已经在就绪表中登记，等待获取CPU使用权。
+3.运行态：
+4.等待触发态：由运行态进入等待触发状态，触发事件：信号量，消息，事件标志组等
+5.中断服务态：被中断挂起
+
+(3)常用函数：
+1.OS_Init() 初始化函数
+2.OSTaskCreat()创建任务函数
+3.OSStart() 启动任务函数
+4.OSTaskDel() 删除任务函数
+
+5.OS_PrioGetHighest()  获取最高优先级
+6.OS_PrioInsert()      将就绪表中对应的位置1
+7.OS_Remove()          将就绪表中对应的位清零
+
+8.OSTimeDlyHMSM(时,分,秒,毫秒,OS_OPT_TIME_HMSM_STRICT,错误状态); //按节拍延迟函数
+9.OSTimeDly()
+10.OSTimeDlyResume()
+
+
+
+
+(4)创建任务函数参数
+//创建任务的函数 参数量：13
+void  OSTaskCreate (OS_TCB        *p_tcb,
+                    CPU_CHAR      *p_name,
+                    OS_TASK_PTR    p_task,
+                    void          *p_arg,
+                    OS_PRIO        prio,
+                    CPU_STK       *p_stk_base,
+                    CPU_STK_SIZE   stk_limit,
+                    CPU_STK_SIZE   stk_size,
+                    OS_MSG_QTY     q_size,
+                    OS_TICK        time_quanta,
+                    void          *p_ext,
+                    OS_OPT         opt,
+                    OS_ERR        *p_err)
+
+参数1：任务控制块结构体：
+1.很复杂	
+
+2.任务名				
+3.任务函数
+4.任务函数参数				
+				
+5.任务优先级映射表 ->从而知道哪个任务就绪了。
+当一个任务就绪后，任务优先级相应的位就会置1,
+从0~96 0最高
+
+					
+					
+参数6,7,8：任务堆栈数组
+6：数组首地址
+7：任务深度堆栈限位
+8：数组长度
+作用:在切换任务和调用其他函数时保存现场，每个任务都有一个任务堆栈
+定义步骤：
+1.定义堆栈长度
+2.定义堆栈数组 
+长度为4个字节，也就是大小为 sizeof(u32)*len
+
+
+
+通俗的理解：任务堆栈相当于任务的仓库，与任务生死与共，任务运行时保存一些局部变量，任务挂起时保存任务现场。
+如果堆栈设得太小，可能会引发
+1.挂起时，任务信息无法全部保存，当获得CPU使用权再次运行时，无法正常运行
+2.挂起时占用到另一个任务的空间，导致别的任务无法正常执行。
+					
+
+(5)就绪任务表
+OS_RDY_LIST OSRdyList[];
+
+typedef struct os_rdy_list
+{
+	OS_TCB *HeadPtr;	创建链表，指向表头
+	OS_TCB *TailPtr;	创建链表，指向表尾
+	OS_OBJ_QTY NbrEntries;	优先级下的任务数量
+}
+	
+UCOSIII支持时间片轮转，在一个优先级下会有多个任务，OSRdOSRdyList[0]表示管理0优先级下的所有任务。
+
+任务调度和切换：
+关键词：Sched
+1.任务级调度器：
+图
+2.中断级调度器：
+图
+
+ CPU_SR_ALLOC();                                  // 宏，声明存储空间，用来存储当前CPU的中断状态
+	
+					
+1.直接发布
+图
+2.延迟发布
+图					
+		
+信号量：
+1.共享资源
+2.任务同步
+3.优先级反转	
+4.互斥信号量
+
+消息队列：
+	
+					
+
+*/
+
+
+/*27 文件系统
+FreeRTOS:
+任务：建立两个任务，任务A通过发消息的形式去通知任务B。
+
+
+资料:左工的FreeRTOS视频
+ARM Cortex-M3与 Cortex-M4权威指南 (第三版 );
+1.移植：
+protable文件
+1.keil文件夹：MDK编译环境所使用的的文件
+2.MemMang文件夹：内存管理相关文件
+3.RVDS：MDK编译环境所使用的的文件
+
+过程中会缺少 FreeRTOSConfig.h 一个很重要的文件、
+1.INCLUDE_+API函数 实现系统裁剪 作用节省空间
+2.configASSERT(x) 断言
+3.configCHECK_FOR_STACK_OVERFLOW 栈溢出检测  有相应钩子函数  两种方法检测
+4.configCPU_CLOCK_HZ  设置CPU频率
+
+
+
+
+实验1：保证移植成功。
+
+
+实验2：中断测试实验。
+
+
+
+*/
+
+/*
+1.FIFO：
+(1).建立任务
+(2).
+
+
+*/
+
+
+/*GNS3实验
+>>>>>>-------------------------------------------实验1-----------------------------------------------------------	
+	
+										两台路由连接交换机互ping1000次
+方式1：使用不可配置交换机										
+要点1：配置完IP后需要 no shutdown 等待端口重启
+要点2： no shutdown是在端口配置模式下进行
+要点3: ip add x.x.x.x ? 后面会有repeat的说明 
+要点4：若要停止ping 不是用ctrl+c 而是 Ctrl + shift +6
+
+方式1：采用路由代替交换机
+要点1：使用 no ip routing 关闭路由 之后使用路由的交换功能
+要点2：简要查看端口状态  show ip interface brief
+
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+>>>>>>---------------------------------------------实验2-------------------------------------------------------
+
+											通过两台路由器实现抓包
+											
+要求1：在config-if 模式下配置 IP地址与子网掩码 并 no sh 
+
+要求2：在未ping之前初步了解抓包界面信息并记录，记录如下：
+
+1. 行：
+		第一行:起始时间 第二行:源地址 第三行:目的地址 第四行:报文类型 第五行:长度信息
+2.报文：
+		LOOP：循回报文，自发自收，所以源地址与目的地址相同
+		 CDP：简称Cisco Discovery Protocol，思科的私有协议，是一种私有二层网络协议
+		 
+引出问题：什么是二层网络协议	
+		  答：数据链路层 = 二层网络协议，如面向字符的链路层协议 、 面向比特的链路层协议
+		  传输控制协议   = 	三层网络协议， 如TCP、IP。
+		  
+3.协议层：
+				Frame： 物理层的数据帧概况。
+		  Ethernet II：	数据链路层以太网帧头部信息，前6个字节是源MAC地址，后6个字节是目的MAC地址 ，接着后
+						两个字节是IP协议类型。
+		  
+		    
+要求3：R1设置密码，R2使用telnet远程登录R1，并抓到密码
+		命令：line vty 0 4
+		解释:    line:解释行命令的意思，
+	         vty 0 4 ：Virtual typle terminal 虚拟组终端的意思，这里是配置0~4 5个虚拟终端供Telnet 远程登录
+			 
+要求4：了解：telnet
+		telnet底层是TCP协议，所以会有TCP三次握手 
+		TCP三次握手：R2请求连接R1，R1应答，R2再应答
+		层次分类：
+		第一层：Frame：物理层
+		第二层：Ethernet II：以太网层
+		第三层：IPV4
+		第四层：TCP
+		第五层：telnet
+----------------------------------------------------------------------------------------------------------<<<<<<		
+		
+>>>>>>-------------------------------------------实验3---------------------------------------------------------
+	
+										两台路由模拟PC
+										
+要点1：PC连接交换机是不可连在路由的以太网接口
+要点2：PC不只要配置路由还要用 ip default-gateway 命令配置网关
+要点3：路由器模拟PC或交换机都要把 路由功能关掉 命令：no ip routing
+要点4：配置完IP后要记得重启
+
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+
+>>>>>>-------------------------------------------实验4---------------------------------------------------------
+
+											路由器桥接真机
+											
+要点1：win + r 可以卡开命令界面，输入hdwwiz 可以选择虚拟网卡 若GNS3检测不到IP地址 ，需重启电脑
+要点2：电脑ping 的通 路由，路由ping的通电脑 即可完成实验
+
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+
+>>>>>>-------------------------------------------实验5---------------------------------------------------------
+
+											路由器桥接虚拟机
+											
+要点1：了解三种网络模式
+		1.桥接模式：虚拟机同其他终端一样连接在交换机上，能互访。
+		2.仅主机模式：虚拟机与宿主机连在交换机上，只能与宿主机互访，不能与其他终端互访。
+		3.NAT模式：宿主机相当于一台路由器，虚拟机可以通过宿主机访问整个Internet。
+		 重要概念：NAT 英文全称是“Network Address Translation”，中文意思是“网络地址转换” 
+		 它是一个IETF标准，允许一个整体机构以一个公用IP地址出现在Internet上
+
+----------------------------------------------------------------------------------------------------------<<<<<<<
+*/
+
+
+/*Linux基础实验
+
+>>>>>>-------------------------------------------实验1-----------------------------------------------------------	
+	
+										怎么登陆到Linux
+										
+要点1：两种登陆方式-> 1.虚拟控制台 F1-F6  ->2.图形登陆	F7		
+	   切换方式：Ctrl + Alt + Fx;
+	   查看当前用户名与那个tty ：whoami 或tty 
+	   
+要点2：用带有SSH功能的小软件远程登录 比如putty.exe  SecureCRT 8.0  如果出现 network error:connection timed out 
+		并且ping 不通 查看主机是否能ping得通虚拟机，如果不行，修改主机上的虚拟机的IP就可以解决。【IP没设对】
+		如出现 The remote system refused the connection
+		安装openssh-server： sudo apt-get install openssh-server  								【openssh-server 没按安装】
+		查看SSH： ps -e | grep ssh
+		重启SSh：/etc/init.d/ssh restart
+		
+		查看端口：	netstat -nta																	【查看22 端口是否打开】
+		监视TCP/IP: netstat -tlp
+		配置SSH: sudo vim /etc/ssh/ssh_config
+		
+		重新运算密匙代理： eval  ssh-agent															【ssh-agent 是否打开】
+		防火墙：iptables
+		ubantu下的操作
+		关闭：ufw disable
+		打开：ufw enable
+		卸载：apt-get remove iptables
+		查看信息：iptables -L				【iptables 是否关闭】
+		
+		配置SSH: sudo vim /etc/ssh/ssh_config
+		ssh_config和sshd_config都是ssh服务器的配置文件，二者区别在于，前者是针对客户端的配置文件，后者则是针对服务端的配置文件。
+		
+		
+		修改Linux ip与子网掩码 sudo ifconfig eth0 192.168.1.100 netmask 255.255.255.0
+		配置默认路由 sodo route default gw 192.168.0.1 
+		查看IP命令：ifconfig
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+>>>>>>-------------------------------------------实验2-----------------------------------------------------------	
+	
+										善用Tab键
+										
+要点1：一般记指令记前三个字母，之后用两次 Tab键提示 文件夹同样适用
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+>>>>>>-------------------------------------------实验3-----------------------------------------------------------	
+	
+										修改密码
+										
+要点1：passwd命令 修改用户密码 sudo passwd 修改 root 密码。
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+>>>>>>-------------------------------------------实验4-----------------------------------------------------------	
+	
+										使用su切换用户
+										
+要点1：su - linyao 切换到用户 su - root 切换到root 此时需要输入密码 。
+		切换可以嵌套，exit 可以逐渐退出嵌套。
+	   sudo 可以以root的身份运行
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+
+>>>>>>-------------------------------------------实验5-----------------------------------------------------------	
+	
+										X服务与XWindow的关系
+										
+要点1：启动xeyes眼球
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+>>>>>>-------------------------------------------实验6-----------------------------------------------------------	
+	
+										VIM 文本编辑器
+										
+指令1：插入：
+			append
+			a:
+			A:行尾插入
+			
+			insert:
+			i:
+			I:行首插入
+			
+			open:
+			o:在此之下插入新的一行
+			O:在此之上插入新的一行
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+*/
+
+
+
+/*shell 入门到精通实验 
+
+>>>>>>-------------------------------------------实验1-----------------------------------------------------------	
+	
+											调用一个脚本
+要点1：Bash的全称：Bourne Again shell,Shell脚本一般以.sh结尾 以便于区别。										
+										
+	   
+----------------------------------------------------------------------------------------------------------<<<<<<<
+*/
+/*Linux网络编程实验
+
+*/
+
+/*Linux 入门教程命令篇实验
+
+				实验1：登录用户
+				
+				要点：#表示root用户 $表示普通用户
+					  Login：输入用户名
+				   password：输入密码
+				       exit：退出当前用户
+					   
+					   
+					   
+				实验2：添加与删除用户
+				
+				要点：
+				useradd netseek：添加一个账户
+				passwd  netseek: 给账户添加密码
+				userdle netseek：删除一个账户
+				
+				
+				实验3：查看命令
+				
+				要点：
+				ls -a：包括隐藏文件
+				ls -l: 包括权限文件
+				ls -al
+				ls -sh: 显示文件与文件大小
+				
+				实验4：建立文件与目录
+				要点：
+				touch 1.txt           :建立文件1.txt 
+				touch file{1..10}.txt :一次创建多个文件
+				cat > 2.txt           :接下来的内容将会保存到2.txt中 Ctrl+d 结束。
+				mkdir                 :建立目录
+				
+				实验5 复制、删除、改名、移动
+				
+				要点：
+				cp file1 file2    :复制file1中的内容到file2
+				cp -r file1 file2 :复制文件夹file1到 文件夹file2 中
+				cp file ../       :复制文件到上一层文件
+				rm 1.c            :移除文件1.c
+				rm -rf            :强制删除 文件或文件夹不加以提示 f：不提示
+				mv file1.c file2.c:将文件file1.c 改成 file2.c
+				mv file1 file2    :将文件或文件夹 file1 移动到文件夹file2
+				mv file ../       :将文件file 移动到上一层目录。
+				
+				实验6：别名 
+				alias dir='ls -sh' :输入dir 相当于输入 ls -sh
+				
+				实验7：显示与切换目录
+				pwd          ：显示当前路径
+				cd   netseek ：进入netseek目录
+				cd 			 :退出当前目录
+				cd ../       :返回上一级目录
+				cd -		 :返回上一次目录
+				cd ~		 :返回主目录
+				
+				
+					   
+
+
+
+*/
+
+
+
+
+
+
